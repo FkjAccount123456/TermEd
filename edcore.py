@@ -79,7 +79,9 @@ class Editor:
         self.ideal_x = 0
         self.screen_h = h
         self.textspace_h = self.screen_h - 2
-        self.w = w - 1
+        self.screen_w = w - 1
+        self.textspace_w = self.screen_w
+        self.linum_w = 0
 
         self.scroll_begin = [0, 0]
         self.text: list[list[list[str]]] = [[[]]]
@@ -91,6 +93,12 @@ class Editor:
         self.cmd_x = 0
 
         self.file = file
+
+        self.show_linum = True
+
+        if self.show_linum:
+            self.textspace_w -= 6
+            self.linum_w = 6
 
         self.keymaps = {
             'NORMAL': {
@@ -347,7 +355,7 @@ class Editor:
         cur_w = 0
         for ch in data:
             ch_w = get_width(ch)
-            if cur_w + ch_w > self.w:
+            if cur_w + ch_w > self.textspace_w:
                 self.text[linum].append([])
                 cur_w = 0
             cur_w += ch_w
@@ -538,15 +546,15 @@ class Editor:
         cur_w = 0
         for ch in self.cmd_input:
             ch_w = get_width(ch)
-            if cur_w + ch_w > self.w:
+            if cur_w + ch_w > self.textspace_w:
                 mb_h += 1
                 cur_w = 0
             cur_w += ch_w
         self.textspace_h = self.screen_h - mb_h - 1
-        for i in range(self.w):
+        for i in range(self.textspace_w):
             self.screen.change(self.textspace_h, i, ' ', '\033[47m')
         for i in range(mb_h):
-            for j in range(self.w):
+            for j in range(self.textspace_w):
                 self.screen.change(self.textspace_h + 1 + i, j, ' ', '')
         modeline = self.mode + \
             f"   ln: {self.y[0] + 1} + {self.y[1]}, col: {self.x + 1}"
@@ -558,7 +566,7 @@ class Editor:
         cur_w = 0
         for ch in self.cmd_input:
             ch_w = get_width(ch)
-            if cur_w + ch_w > self.w:
+            if cur_w + ch_w > self.textspace_w:
                 cur_h += 1
                 cur_w = 0
             self.screen.change(self.textspace_h + cur_h, cur_w, ch, '')
@@ -569,6 +577,11 @@ class Editor:
         isend = False
         for i in range(self.textspace_h):
             shift = 0
+            if not isend and self.show_linum and cur[1] == 0:
+                linum = "%5d "%(cur[0] + 1)
+                for ch in linum:
+                    self.screen.change(i, shift, ch, '\033[1;33m')
+                    shift += get_width(ch)
             if not isend:
                 for j in range(len(self.text[cur[0]][cur[1]])):
                     if self.mode == "SELECT" and self.in_select(cur, j):
@@ -581,7 +594,7 @@ class Editor:
                         self.screen.change(i, shift + x, '', '')
                     shift += get_width(self.text[cur[0]][cur[1]][j])
                 isend = not self.y_inc(cur)
-            for j in range(shift, self.w):
+            for j in range(shift, self.textspace_w):
                 self.screen.change(i, j, ' ', '')
         self.screen.refresh()
 
@@ -594,13 +607,13 @@ class Editor:
                 if not self.y_inc(cur_y):
                     break
             col = sum(map(get_width, self.text[self.y[0]][self.y[1]][:self.x]))
-            gotoxy(ln + 1, col + 1)
+            gotoxy(ln + 1, col + 1 + self.linum_w)
         else:
             y = 0
             x = 0
             for ch in self.cmd_input[:self.cmd_x]:
                 ch_w = get_width(ch)
-                if x + ch_w > self.w:
+                if x + ch_w > self.textspace_w:
                     y += 1
                     x = 0
                 x += ch_w
