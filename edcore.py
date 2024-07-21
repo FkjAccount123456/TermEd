@@ -3,46 +3,9 @@ import copy
 import pyperclip
 import os
 import sys
-
-
-def clear():
-    os.system("cls")
-
-
-def gotoxy(y, x):
-    print(f"\033[{y};{x}f", end="")
-
-
-def flush():
-    print(flush=True, end='')
-
-
-Pos = tuple[int, int]
-widths = [
-    (126, 1), (159, 0), (687, 1), (710, 0), (711, 1),
-    (727, 0), (733, 1), (879, 0), (1154, 1), (1161, 0),
-    (4347, 1), (4447, 2), (7467, 1), (7521, 0), (8369, 1),
-    (8426, 0), (9000, 1), (9002, 2), (11021, 1), (12350, 2),
-    (12351, 1), (12438, 2), (12442, 0), (19893, 2), (19967, 1),
-    (55203, 2), (63743, 1), (64106, 2), (65039, 1), (65059, 0),
-    (65131, 2), (65279, 1), (65376, 2), (65500, 1), (65510, 2),
-    (120831, 1), (262141, 2), (1114109, 1),
-]
-
-
-def get_width(o):
-    # 参考了https://wenku.baidu.com/view/da48663551d380eb6294dd88d0d233d4b14e3f18.html?
-    """Return the screen column width for unicode ordinal o."""
-    global widths
-    o = ord(o)
-    if o == 0xe or o == 0xf:
-        return 0
-    if o == 0x9:
-        return 8
-    for num, wid in widths:
-        if o <= num:
-            return wid
-    return 1
+from utils import *
+from pyrender import pyrenderer
+from colorschemes import colorschemes
 
 
 class Screen:
@@ -65,9 +28,19 @@ class Screen:
             self.color[y][x] = color
 
     def refresh(self):
-        for y, x in self.changed:
-            gotoxy(y + 1, x + 1)
-            print(self.color[y][x] + self.data[y][x], end='\033[0m')
+        print("\033[0m", end="")
+        gotoxy(1, 1)
+        last = ""
+        lastpos = 0, 0
+        for y, x in sorted(self.changed):
+            if y != lastpos[0] or x != lastpos[1] + 1:
+                gotoxy(y + 1, x + 1)
+            if last == self.color[y][x]:
+                print(self.color[y][x] + self.data[y][x], end='')
+            else:
+                print("\033[0m" + self.color[y][x] + self.data[y][x], end='')
+            last = self.color[y][x]
+            lastpos = y, x
         self.changed = set()
 
 
@@ -95,6 +68,8 @@ class Editor:
         self.file = file
 
         self.show_linum = True
+
+        self.colorscheme = colorschemes["default"]
 
         if self.show_linum:
             self.textspace_w -= 6
@@ -199,16 +174,20 @@ class Editor:
                     self.scroll_begin = [0, 0]
                     self.mode = 'NORMAL'
                     self.insert_any(f.read())
-            except:
+            except FileNotFoundError:
                 pass
+
+    def get_all(self):
+        return '\n'.join(map(lambda a: ''.join(map(''.join, a)),
+                             self.text))
 
     def write_file(self):
         if self.file:
             try:
                 with open(self.file, 'w', encoding='utf-8') as f:
-                    text = '\n'.join(map(lambda a: ''.join(map(''.join, a)), self.text))
+                    text = self.get_all()
                     f.write(text)
-            except:
+            except FileNotFoundError:
                 pass
 
     def setmode_select(self):
@@ -245,9 +224,11 @@ class Editor:
 
     def del_selected(self):
         if self.cmp_2D(self.y, self.x, self.selecty, self.selectx) <= 0:
-            beginy, beginx, endy, endx = self.y, self.x, self.selecty, self.selectx
+            beginy, beginx, endy, endx =\
+                self.y, self.x, self.selecty, self.selectx
         else:
-            endy, endx, beginy, beginx = self.y, self.x, self.selecty, self.selectx
+            endy, endx, beginy, beginx =\
+                self.y, self.x, self.selecty, self.selectx
             self.y, self.x = copy.deepcopy(self.selecty), self.selectx
         if beginy[0] == endy[0]:
             if endy[1] == len(self.text[endy[0]]) - 1 and\
@@ -281,9 +262,11 @@ class Editor:
 
     def get_selected(self):
         if self.cmp_2D(self.y, self.x, self.selecty, self.selectx) <= 0:
-            beginy, beginx, endy, endx = self.y, self.x, self.selecty, self.selectx
+            beginy, beginx, endy, endx =\
+                self.y, self.x, self.selecty, self.selectx
         else:
-            endy, endx, beginy, beginx = self.y, self.x, self.selecty, self.selectx
+            endy, endx, beginy, beginx =\
+                self.y, self.x, self.selecty, self.selectx
         if beginy[0] == endy[0]:
             if beginy[1] == endy[1]:
                 res = "".join(self.text[beginy[0]]
@@ -368,9 +351,11 @@ class Editor:
     def insert(self, text: list[str]):
         next_pos = sum(
             map(len, self.text[self.y[0]][:self.y[1]])) + self.x + len(text)
-        self.text[self.y[0]][self.y[1]] = (self.text[self.y[0]][self.y[1]][:self.x]
+        self.text[self.y[0]][self.y[1]] = (self.text[self.y[0]][
+                                            self.y[1]][:self.x]
                                            + text
-                                           + self.text[self.y[0]][self.y[1]][self.x:])
+                                           + self.text[self.y[0]][
+                                            self.y[1]][self.x:])
         self.correct_line(self.y[0])
         self.y[1] = 0
         while self.y[1] < len(self.text[self.y[0]]) - 1 and \
@@ -400,6 +385,7 @@ class Editor:
             self.y_dec(self.y)
             self.x = len(self.text[self.y[0]][self.y[1]])
             self.text[self.y[0]].extend(self.text[self.y[0] + 1])
+            del self.text[self.y[0] + 1]
             self.correct_line(self.y[0])
         elif self.x == 0:  # 删字符
             self.y[1] -= 1
@@ -507,9 +493,11 @@ class Editor:
             self.cmd_x -= 1
         elif dir == 'right':
             self.cmd_x += 1
-        elif dir == 'begin' or dir == 'up' or dir == 'pageup' or dir == 'start':
+        elif dir == 'begin' or dir == 'up' or\
+                dir == 'pageup' or dir == 'start':
             self.cmd_x = 0
-        elif dir == 'end' or dir == 'down' or dir == 'pageup' or dir == 'final':
+        elif dir == 'end' or dir == 'down' or\
+                dir == 'pageup' or dir == 'final':
             self.cmd_x = len(self.cmd_input)
 
     def cmd_del_before_cursor(self):
@@ -575,24 +563,30 @@ class Editor:
     def draw_textspace(self):
         cur = copy.deepcopy(self.scroll_begin)
         isend = False
+        if os.path.splitext(os.path.split(self.file)[1])[1] == '.py':
+            rendered = pyrenderer(self.get_all(), self.textspace_w, self.colorscheme)
+        else:
+            rendered = self.text
         for i in range(self.textspace_h):
             shift = 0
             if not isend and self.show_linum and cur[1] == 0:
-                linum = "%5d "%(cur[0] + 1)
+                linum = "%5d " % (cur[0] + 1)
                 for ch in linum:
                     self.screen.change(i, shift, ch, '\033[1;33m')
                     shift += get_width(ch)
             if not isend:
-                for j in range(len(self.text[cur[0]][cur[1]])):
+                for j in range(len(rendered[cur[0]][cur[1]])):
                     if self.mode == "SELECT" and self.in_select(cur, j):
                         self.screen.change(
-                            i, shift, self.text[cur[0]][cur[1]][j], '\033[47;30m')
+                            i, shift, rendered[cur[0]][cur[1]][j][-1],
+                            rendered[cur[0]][cur[1]][j][:-1] + '\033[1;47m')
                     else:
                         self.screen.change(
-                            i, shift, self.text[cur[0]][cur[1]][j], '')
-                    for x in range(1, get_width(self.text[cur[0]][cur[1]][j])):
+                            i, shift, rendered[cur[0]][cur[1]][j][-1],
+                            rendered[cur[0]][cur[1]][j][:-1])
+                    for x in range(1, get_width(rendered[cur[0]][cur[1]][j])):
                         self.screen.change(i, shift + x, '', '')
-                    shift += get_width(self.text[cur[0]][cur[1]][j])
+                    shift += get_width(rendered[cur[0]][cur[1]][j])
                 isend = not self.y_inc(cur)
             for j in range(shift, self.textspace_w):
                 self.screen.change(i, j, ' ', '')
@@ -660,5 +654,6 @@ if len(sys.argv) == 2:
     file = sys.argv[1]
 else:
     file = None
-editor = Editor(os.get_terminal_size().lines, os.get_terminal_size().columns, file)
+editor = Editor(os.get_terminal_size().lines,
+                os.get_terminal_size().columns, file)
 editor.mainloop()
