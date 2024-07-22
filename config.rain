@@ -1,0 +1,59 @@
+func gen_auto_pairs(pair)
+    editor.keymaps["INSERT"][pair[0]] = func()
+        editor.insert_any(pair)
+        editor.move_cursor("left")
+    end
+end
+
+func auto_pair_mode(confirm)
+    if not confirm
+        return None
+    end
+    gen_auto_pairs("()")
+    gen_auto_pairs("[]")
+    gen_auto_pairs("{}")
+    gen_auto_pairs("''")
+    gen_auto_pairs("\"\"")
+    gen_auto_pairs("``")
+end
+
+func del_at_cursor()
+    if (edattr.y[1] == len(edattr.text[edattr.y[0]]) - 1 and
+        edattr.x == len(edattr.text[edattr.y[0]][edattr.y[1]]))
+        return None
+    end
+    editor.move_cursor("right")
+    editor.del_before_cursor()
+end
+
+func basic_keymaps(confirm)
+    editor.keymaps["NORMAL"]["o"] = func()
+        editor.move_cursor("end")
+        editor.set("mode", "INSERT")
+        editor.insert_enter()
+    end
+    editor.keymaps["NORMAL"]["O"] = func()
+        editor.move_cursor("home")
+        editor.set("mode", "INSERT")
+        editor.insert_enter()
+        editor.move_cursor("up")
+    end
+    editor.keymaps["NORMAL"]["a"] = func()
+        editor.move_cursor("right")
+        editor.set("mode", "INSERT")
+    end
+    editor.keymaps["NORMAL"]["A"] = func()
+        editor.move_cursor("end")
+        editor.set("mode", "INSERT")
+    end
+    editor.keymaps["NORMAL"]["I"] = func()
+        editor.move_cursor("linebegin")
+        editor.set("mode", "INSERT")
+    end
+    editor.keymaps["NORMAL"]["x"] = del_at_cursor
+    editor.keymaps["INSERT"]["\xe0"]["S"] = del_at_cursor
+end
+
+editor.set("show_linum", True)
+auto_pair_mode(True)
+basic_keymaps(True)

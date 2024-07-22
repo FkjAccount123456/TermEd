@@ -5,7 +5,15 @@ import os
 import sys
 from utils import *
 from pyrender import pyrenderer
+from rainrender import rainrenderer
 from colorschemes import colorschemes
+from rain import run_file, add_builtin, Module, Func, call_Func
+
+
+renderers = {
+    '.py': pyrenderer,
+    '.rain': rainrenderer,
+}
 
 
 class Screen:
@@ -31,8 +39,9 @@ class Screen:
         print("\033[0m", end="")
         gotoxy(1, 1)
         last = ""
-        lastpos = 0, 0
+        lastpos = 0, -1
         for y, x in sorted(self.changed):
+            # print(y, x, end=' ')
             if y != lastpos[0] or x != lastpos[1] + 1:
                 gotoxy(y + 1, x + 1)
             if last == self.color[y][x]:
@@ -71,10 +80,6 @@ class Editor:
 
         self.colorscheme = colorschemes["default"]
 
-        if self.show_linum:
-            self.textspace_w -= 6
-            self.linum_w = 6
-
         self.keymaps = {
             'NORMAL': {
                 'i': lambda: self.__setattr__("mode", "INSERT"),
@@ -86,6 +91,7 @@ class Editor:
                 'k': lambda: self.move_cursor('up'),
                 'l': lambda: self.move_cursor('right'),
                 '0': lambda: self.move_cursor('home'),
+                '^': lambda: self.move_cursor('linebegin'),
                 '$': lambda: self.move_cursor('end'),
                 'p': lambda: self.insert_any(pyperclip.paste()),
                 'g': {
@@ -162,7 +168,31 @@ class Editor:
             }
         }
 
+        self.rain_add_builtins()
+        self.config_code = self.load_config()
+
+        if self.show_linum:
+            self.textspace_w -= 6
+            self.linum_w = 6
+
         self.open_file()
+
+    def rain_add_builtins(self):
+        mod = {}
+        for i in dir(self):
+            mod[i] = getattr(self, i)
+        add_builtin("editor", Module(mod))
+        add_builtin("edattr", Module(self.__dict__))
+
+    def load_config(self):
+        return run_file("config.rain")
+
+    def echo(self, text):
+        if self.mode != "COMMAND":
+            self.cmd_input = text
+
+    def set(self, key: str, val):
+        setattr(self, key, val)
 
     def open_file(self):
         if self.file:
@@ -282,17 +312,24 @@ class Editor:
                 res += '\n'
         else:
             res = "".join(self.text[beginy[0]][beginy[1]][beginx:])
-            res += "".join(map("".join,
-                           self.text[beginy[0]][beginy[1] + 1:])) + '\n'
-            res += '\n'.join(map(lambda a: ''.join(map(''.join, a)),
-                             self.text[beginy[0] + 1: endy[0]])) + '\n'
+            if beginy[1] + 1 < len(self.text[beginy[0]]):
+                res += "".join(map("".join,
+                               self.text[beginy[0]][beginy[1] + 1:]))
+            res += '\n'
+            # echo = [list(res)]
+            if endy[0] > beginy[0] + 1:
+                res += '\n'.join(map(lambda a: ''.join(map(''.join, a)),
+                                 self.text[beginy[0] + 1: endy[0]])) + '\n'
+            # echo += [list(res)]
             res += "".join(map("".join,
                            self.text[endy[0]][endy[1] + 1:]))
             res += "".join(self.text[endy[0]][endy[1]][:endx + 1])
+            # echo += [list(res)]
             if endy[1] == len(self.text[endy[0]]) - 1 and\
                     endx == len(self.text[endy[0]][endy[1]]) and\
                     endy[0] < len(self.text) - 1:
                 res += '\n'
+            # self.echo(str(echo))
         return res
 
     def y_cmp(self, y1, y2):
@@ -457,6 +494,18 @@ class Editor:
             self.ideal_x = self.x
         elif dir == 'home':
             self.ideal_x = self.x = 0
+        elif dir == 'linebegin':
+            self.y[1] = 0
+            self.x = 0
+            while self.y[1] < len(self.text[self.y[0]]) and\
+                    self.x < len(self.text[self.y[0]][self.y[1]]) and\
+                    self.text[self.y[0]][self.y[1]][self.x].isspace():
+                if self.x < len(self.text[self.y[0]][self.y[1]]):
+                    self.x += 1
+                elif self.y[1] < len(self.text[self.y[0]]) - 1:
+                    self.y_inc(self.y)
+                    self.x = 0
+            self.ideal_x = self.x
         elif dir == 'end':
             self.ideal_x = self.x = len(self.text[self.y[0]][self.y[1]])
         elif dir == 'pageup':
@@ -471,10 +520,10 @@ class Editor:
             self.x = min(self.ideal_x, len(self.text[self.y[0]][self.y[1]]))
         elif dir == 'start':
             self.y = [0, 0]
-            self.x = 0
+            self.ideal_x = self.x = 0
         elif dir == 'final':
             self.y = [len(self.text) - 1, len(self.text[-1]) - 1]
-            self.x = len(self.text[self.y[0]][self.y[1]])
+            self.ideal_x = self.x = len(self.text[self.y[0]][self.y[1]])
 
     def cmd_insert(self, ch: str):
         self.cmd_input = self.cmd_input[:self.cmd_x] + \
@@ -563,8 +612,9 @@ class Editor:
     def draw_textspace(self):
         cur = copy.deepcopy(self.scroll_begin)
         isend = False
-        if os.path.splitext(os.path.split(self.file)[1])[1] == '.py':
-            rendered = pyrenderer(self.get_all(), self.textspace_w, self.colorscheme)
+        if self.file and os.path.splitext(os.path.split(self.file)[1])[1] in renderers:
+            rendered = renderers[os.path.splitext(os.path.split(self.file)[1])[1]]\
+                    (self.get_all(), self.textspace_w, self.colorscheme)
         else:
             rendered = self.text
         for i in range(self.textspace_h):
@@ -590,6 +640,8 @@ class Editor:
                 isend = not self.y_inc(cur)
             for j in range(shift, self.textspace_w):
                 self.screen.change(i, j, ' ', '')
+        # self.echo('|'.join(map(lambda a: str(a), self.screen.data[:1])))
+        # self.echo(str(self.text))
         self.screen.refresh()
 
     def draw_cursor(self):
@@ -642,6 +694,8 @@ class Editor:
                         x = x[key]
                     if callable(x):
                         x()
+                    elif isinstance(x, Func):
+                        call_Func(x, self.config_code, [])
                 elif self.mode == "INSERT" and key.isprintable():
                     self.insert([key])
                 elif self.mode == "INSERT" and key in '\n\r':
@@ -650,6 +704,7 @@ class Editor:
                     self.cmd_insert(key)
 
 
+clear()
 if len(sys.argv) == 2:
     file = sys.argv[1]
 else:

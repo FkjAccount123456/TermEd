@@ -16,6 +16,8 @@ def pyrenderer(code: str, width: int, cs: dict):
 
     def add_ret(color: str):
         nonlocal ret_cur_w, p
+        if p >= len(code):
+            return
         ch = code[p]
         p += 1
         if ch == '\n':

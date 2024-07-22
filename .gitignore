@@ -1,2 +1,6 @@
 __pycache__/
 .mypy_cache/
+.root/
+*~
+*.swp
+tags
