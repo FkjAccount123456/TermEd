@@ -80,6 +80,9 @@ class Editor:
 
         self.colorscheme = colorschemes["default"]
 
+        self.undo_history = []  # 闭区间
+        self.undo_version = 0
+
         self.keymaps = {
             'NORMAL': {
                 'i': lambda: self.__setattr__("mode", "INSERT"),
@@ -98,6 +101,8 @@ class Editor:
                     'g': lambda: self.move_cursor('start'),
                 },
                 'G': lambda: self.move_cursor('final'),
+                'u': self.undo,
+                '\x12': self.redo,
                 '\xe0': {
                     'K': lambda: self.move_cursor('left'),
                     'P': lambda: self.move_cursor('down'),
@@ -194,11 +199,39 @@ class Editor:
     def set(self, key: str, val):
         setattr(self, key, val)
 
+    def add_undo_history(self, arg):
+        del self.undo_history[self.undo_version:]
+        self.undo_history.append(arg)
+        self.undo_version += 1
+
+    def undo(self):
+        if self.undo_version:
+            self.undo_version -= 1
+            cur_undo = self.undo_history[self.undo_version]
+            if cur_undo[4] =='i':
+                self.del_inrange(*cur_undo[:4])
+                self.y, self.x = copy.deepcopy(cur_undo[:2])
+            elif cur_undo[4] == 'd':
+                self.y, self.x = copy.deepcopy(cur_undo[:2])
+                self.insert_any(cur_undo[5], True)
+
+    def redo(self):
+        if self.undo_version < len(self.undo_history):
+            cur_undo = self.undo_history[self.undo_version]
+            self.undo_version += 1
+            if cur_undo[4] =='d':
+                self.del_inrange(*cur_undo[:4])
+                self.y, self.x = copy.deepcopy(cur_undo[:2])
+            elif cur_undo[4] == 'i':
+                self.y, self.x = copy.deepcopy(cur_undo[:2])
+                self.insert_any(cur_undo[5], True)
+
     def open_file(self):
         if self.file:
             try:
                 with open(self.file, 'r', encoding='utf-8') as f:
-                    self.text = [[[]]]
+                    self.text.clear()
+                    self.text.append([[]])
                     self.y = [0, 0]
                     self.ideal_x = self.x = 0
                     self.scroll_begin = [0, 0]
@@ -252,14 +285,7 @@ class Editor:
             return self.cmp_2D(self.selecty, self.selectx, y, x) <= 0 and \
                 self.cmp_2D(y, x, self.y, self.x) <= 0
 
-    def del_selected(self):
-        if self.cmp_2D(self.y, self.x, self.selecty, self.selectx) <= 0:
-            beginy, beginx, endy, endx =\
-                self.y, self.x, self.selecty, self.selectx
-        else:
-            endy, endx, beginy, beginx =\
-                self.y, self.x, self.selecty, self.selectx
-            self.y, self.x = copy.deepcopy(self.selecty), self.selectx
+    def del_inrange(self, beginy, beginx, endy, endx):
         if beginy[0] == endy[0]:
             if endy[1] == len(self.text[endy[0]]) - 1 and\
                     endx == len(self.text[endy[0]][endy[1]]) and\
@@ -287,6 +313,19 @@ class Editor:
             del self.text[endy[0]]
             self.correct_line(beginy[0])
             del self.text[beginy[0] + 1: endy[0]]
+
+    def del_selected(self):
+        content = self.get_selected()
+        if self.cmp_2D(self.y, self.x, self.selecty, self.selectx) <= 0:
+            beginy, beginx, endy, endx =\
+                self.y, self.x, self.selecty, self.selectx
+        else:
+            endy, endx, beginy, beginx =\
+                self.y, self.x, self.selecty, self.selectx
+            self.y, self.x = copy.deepcopy(self.selecty), self.selectx
+        self.add_undo_history((copy.deepcopy(beginy), beginx,
+                               copy.deepcopy(endy), endx, 'd', content))
+        self.del_inrange(beginy, beginx, endy, endx)
         self.mode = "NORMAL"
         self.ideal_x = self.x
 
@@ -381,11 +420,24 @@ class Editor:
             cur_w += ch_w
             self.text[linum][-1].append(ch)
 
+    def dec_pos(self, y, x):
+        if x > 0:
+            x -= 1
+        elif y[1] > 0:
+            y[1] -= 1
+            x = len(self.text[y[0]][y[1]])
+        elif y[0] > 0:
+            y[0] -= 1
+            y[1] = len(self.text[y[0]]) - 1
+            x = len(self.text[y[0]][y[1]])
+        return y, x
+
     # 不愧是Python，轻易就做到了我们无法做到的事
     # 终于知道为什么要在代码里写Fuck了（
     # 有一种依托答辩的美感（
     # 这要用i33绝对没这事
-    def insert(self, text: list[str]):
+    def insert(self, text: list[str], is_undo=False):
+        begin = copy.deepcopy(self.y), self.x
         next_pos = sum(
             map(len, self.text[self.y[0]][:self.y[1]])) + self.x + len(text)
         self.text[self.y[0]][self.y[1]] = (self.text[self.y[0]][
@@ -401,8 +453,13 @@ class Editor:
             self.y[1] += 1
         self.x = next_pos
         self.ideal_x = self.x
+        end = copy.deepcopy(self.y), self.x
+        end = self.dec_pos(*end)
+        if not is_undo:
+            self.add_undo_history((*begin, *end, 'i', ''.join(text)))
 
-    def insert_enter(self):
+    def insert_enter(self, is_undo=False):
+        begin = copy.deepcopy(self.y), self.x
         self.text[self.y[0]].insert(
             self.y[1] + 1, self.text[self.y[0]][self.y[1]][self.x:])
         self.text[self.y[0]][self.y[1]
@@ -414,6 +471,8 @@ class Editor:
         self.y[1] = 0
         self.x = 0
         self.ideal_x = self.x
+        if not is_undo:
+            self.add_undo_history((*begin, *begin, 'i', '\n'))
 
     def del_before_cursor(self):
         if self.x == 0 and self.y[1] == 0:  # 删换行
@@ -424,21 +483,33 @@ class Editor:
             self.text[self.y[0]].extend(self.text[self.y[0] + 1])
             del self.text[self.y[0] + 1]
             self.correct_line(self.y[0])
+            begin = copy.deepcopy(self.y), self.x
+            self.add_undo_history((*copy.deepcopy(begin), *begin,
+                                   'd', '\n'))
         elif self.x == 0:  # 删字符
             self.y[1] -= 1
             self.x = len(self.text[self.y[0]][self.y[1]]) - 1
+            content = self.text[self.y[0]][self.y[1]][self.x]
             del self.text[self.y[0]][self.y[1]][self.x]
             self.correct_line(self.y[0])
+            begin = copy.deepcopy(self.y), self.x
+            self.add_undo_history((*copy.deepcopy(begin), *begin,
+                                   'd', content))
         else:
             self.x -= 1
+            content = self.text[self.y[0]][self.y[1]][self.x]
             del self.text[self.y[0]][self.y[1]][self.x]
             self.correct_line(self.y[0])
             if self.x == 0 and self.y[1] != 0:
                 self.y[1] -= 1
                 self.x = len(self.text[self.y[0]][self.y[1]])
+            begin = copy.deepcopy(self.y), self.x
+            self.add_undo_history((*copy.deepcopy(begin), *begin,
+                                   'd', content))
         self.ideal_x = self.x
 
-    def insert_any(self, text: str):
+    def insert_any(self, text: str, is_undo=False):
+        begin = copy.deepcopy(self.y), self.x
         tmp = []
         for ch in text:
             if ch == '\n':
@@ -465,6 +536,10 @@ class Editor:
             self.correct_line(self.y[0])
             self.x += len(tmp)
         self.ideal_x = self.x
+        end = copy.deepcopy(self.y), self.x
+        end = self.dec_pos(*end)
+        if not is_undo:
+            self.add_undo_history((*begin, *end, 'i', text))
 
     def move_cursor(self, dir: str):
         if dir == 'up':
@@ -674,6 +749,7 @@ class Editor:
 
     def mainloop(self):
         while not self.exit:
+            # self.echo(f'{self.undo_history} {self.undo_version}')
             self.update()
             key = getch()
             num = 0
