@@ -78,10 +78,16 @@ class Editor:
 
         self.show_linum = True
 
+        if self.show_linum:
+            self.textspace_w -= 6
+            self.linum_w = 6
+
         self.colorscheme = colorschemes["default"]
 
         self.undo_history = []  # 闭区间
         self.undo_version = 0
+
+        self.search_pattern = ''
 
         self.keymaps = {
             'NORMAL': {
@@ -102,6 +108,8 @@ class Editor:
                 },
                 'G': lambda: self.move_cursor('final'),
                 'u': self.undo,
+                'n': lambda: self.search_next(self.search_pattern),
+                'N': lambda: self.search_prev(self.search_pattern),
                 '\x12': self.redo,
                 '\xe0': {
                     'K': lambda: self.move_cursor('left'),
@@ -175,10 +183,6 @@ class Editor:
 
         self.rain_add_builtins()
         self.config_code = self.load_config()
-
-        if self.show_linum:
-            self.textspace_w -= 6
-            self.linum_w = 6
 
         self.open_file()
 
@@ -423,6 +427,9 @@ class Editor:
     def dec_pos(self, y, x):
         if x > 0:
             x -= 1
+            if x == 0 and y[1] > 0:
+                y[1] -= 1
+                x = len(self.text[y[0]][y[1]])
         elif y[1] > 0:
             y[1] -= 1
             x = len(self.text[y[0]][y[1]])
@@ -431,6 +438,83 @@ class Editor:
             y[1] = len(self.text[y[0]]) - 1
             x = len(self.text[y[0]][y[1]])
         return y, x
+
+    def inc_pos(self, y, x):
+        if x < len(self.text[y[0]][y[1]]):
+            x += 1
+        elif y[1] < len(self.text[y[0]]) - 1:
+            y[1] += 1
+            x = 0
+            if x < len(self.text[y[0]][y[1]]):
+                x += 1
+        elif y[0] < len(self.text) - 1:
+            y[0] += 1
+            y[1] = 0
+            x = 0
+        return y, x
+
+    def get_cur_char(self, y, x):
+        if x < len(self.text[y[0]][y[1]]):
+            return self.text[y[0]][y[1]][x]
+        elif y[1] < len(self.text[y[0]]) - 1:
+            return self.text[y[0]][y[1] + 1][0]
+        elif y[0] < len(self.text) - 1:
+            return '\n'
+        else:
+            return None
+
+    def search_next(self, text: str):
+        if not text:
+            self.echo("Pattern not defined")
+            return
+        y, x = copy.deepcopy(self.y), self.x
+        y, x = self.inc_pos(y, x)
+        cur = self.get_cur_char(y, x)
+        matched = 0
+        start_pos = [0, 0], 0
+        while cur != None:
+            if matched == len(text):
+                break
+            if cur == text[matched]:
+                if matched == 0:
+                    start_pos = copy.deepcopy(y), x
+                matched += 1
+            else:
+                matched = 0
+            if matched == len(text):
+                break
+            y, x = self.inc_pos(y, x)
+            cur = self.get_cur_char(y, x)
+        if matched == len(text):
+            self.y, self.x = start_pos[0], start_pos[1]
+        else:
+            self.echo("Unable to find pattern")
+
+    def search_prev(self, text: str):
+        if not text:
+            self.echo("Pattern not defined")
+            return
+        y, x = copy.deepcopy(self.y), self.x
+        y, x = self.dec_pos(y, x)
+        cur = self.get_cur_char(y, x)
+        matched = 0
+        while True:
+            if matched == len(text):
+                break
+            if cur == text[-(matched + 1)]:
+                matched += 1
+            else:
+                matched = 0
+            if matched == len(text):
+                break
+            if y == [0, 0] and x == 0:
+                break
+            y, x = self.dec_pos(y, x)
+            cur = self.get_cur_char(y, x)
+        if matched == len(text):
+            self.y, self.x = y, x
+        else:
+            self.echo("Unable to find pattern")
 
     # 不愧是Python，轻易就做到了我们无法做到的事
     # 终于知道为什么要在代码里写Fuck了（
@@ -534,7 +618,8 @@ class Editor:
                 self.text[self.y[0]][self.y[1]][:self.x] + \
                 tmp + self.text[self.y[0]][self.y[1]][self.x:]
             self.correct_line(self.y[0])
-            self.x += len(tmp)
+            for i in range(len(tmp)):
+                self.y, self.x = self.inc_pos(self.y, self.x)
         self.ideal_x = self.x
         end = copy.deepcopy(self.y), self.x
         end = self.dec_pos(*end)
@@ -551,21 +636,10 @@ class Editor:
                 self.x = min(self.ideal_x, len(
                     self.text[self.y[0]][self.y[1]]))
         elif dir == 'left':
-            if self.x:
-                self.x = self.x - 1
-                if self.x == 0 and self.y[1] != 0:
-                    self.y[1] -= 1
-                    self.x = len(self.text[self.y[0]][self.y[1]])
-            else:
-                self.y_dec(self.y)
-                self.x = len(self.text[self.y[0]][self.y[1]])
+            self.y, self.x = self.dec_pos(self.y, self.x)
             self.ideal_x = self.x
         elif dir == 'right':
-            if self.x < len(self.text[self.y[0]][self.y[1]]):
-                self.x += 1
-            else:
-                self.y_inc(self.y)
-                self.x = 0
+            self.y, self.x = self.inc_pos(self.y, self.x)
             self.ideal_x = self.x
         elif dir == 'home':
             self.ideal_x = self.x = 0
@@ -646,6 +720,14 @@ class Editor:
             if arg:
                 self.file = arg
             self.write_file()
+        elif head == 'f':
+            self.search_pattern = arg
+            self.search_next(self.search_pattern)
+        elif head == 'F':
+            self.search_pattern = arg
+            self.search_prev(self.search_pattern)
+        else:
+            self.echo("Unknown cmd")
 
     def accept_cmd(self):
         self.run_cmd(self.cmd_input)
@@ -663,7 +745,7 @@ class Editor:
                 cur_w = 0
             cur_w += ch_w
         self.textspace_h = self.screen_h - mb_h - 1
-        for i in range(self.textspace_w):
+        for i in range(self.textspace_w + self.linum_w):
             self.screen.change(self.textspace_h, i, ' ', '\033[47m')
         for i in range(mb_h):
             for j in range(self.textspace_w):
@@ -695,10 +777,14 @@ class Editor:
         for i in range(self.textspace_h):
             shift = 0
             if not isend and self.show_linum and cur[1] == 0:
-                linum = "%5d " % (cur[0] + 1)
+                linum = f"%{self.linum_w - 1}d " % (cur[0] + 1)
                 for ch in linum:
                     self.screen.change(i, shift, ch, '\033[1;33m')
                     shift += get_width(ch)
+            if self.show_linum and not isend:
+                shift = self.linum_w
+            else:
+                shift = 0
             if not isend:
                 for j in range(len(rendered[cur[0]][cur[1]])):
                     if self.mode == "SELECT" and self.in_select(cur, j):

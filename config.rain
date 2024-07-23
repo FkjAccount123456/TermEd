@@ -55,5 +55,7 @@ func basic_keymaps(confirm)
 end
 
 editor.set("show_linum", True)
+editor.set("linum_w", 8)
+editor.set("textspace_w", edattr.textspace_w - 2)
 auto_pair_mode(True)
 basic_keymaps(True)
