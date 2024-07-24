@@ -86,6 +86,7 @@ class Editor:
 
         self.undo_history = []  # 闭区间
         self.undo_version = 0
+        self.saved_version = 0
 
         self.search_pattern = ''
 
@@ -110,6 +111,12 @@ class Editor:
                 'u': self.undo,
                 'n': lambda: self.search_next(self.search_pattern),
                 'N': lambda: self.search_prev(self.search_pattern),
+                'f': lambda: self.find_char_next(getch()),
+                'F': lambda: self.find_char_prev(getch()),
+                'w': self.goto_next_word,
+                'W': self.goto_next_word,
+                'b': self.goto_prev_word,
+                'B': self.goto_prev_word,
                 '\x12': self.redo,
                 '\xe0': {
                     'K': lambda: self.move_cursor('left'),
@@ -151,6 +158,11 @@ class Editor:
                     'g': lambda: self.move_cursor('start'),
                 },
                 'G': lambda: self.move_cursor('final'),
+                ':': self.setmode_command,
+                'n': lambda: self.search_next(self.search_pattern),
+                'N': lambda: self.search_prev(self.search_pattern),
+                'f': lambda: self.find_char_next(getch()),
+                'F': lambda: self.find_char_prev(getch()),
                 '\xe0': {
                     'K': lambda: self.move_cursor('left'),
                     'P': lambda: self.move_cursor('down'),
@@ -241,6 +253,7 @@ class Editor:
                     self.scroll_begin = [0, 0]
                     self.mode = 'NORMAL'
                     self.insert_any(f.read())
+                    self.saved_version = self.undo_version
             except FileNotFoundError:
                 pass
 
@@ -254,6 +267,7 @@ class Editor:
                 with open(self.file, 'w', encoding='utf-8') as f:
                     text = self.get_all()
                     f.write(text)
+                    self.saved_version = self.undo_version
             except FileNotFoundError:
                 pass
 
@@ -262,12 +276,13 @@ class Editor:
         self.selecty, self.selectx = copy.deepcopy(self.y), self.x
 
     def setmode_command(self):
+        self.prev_mode = self.mode
         self.mode = "COMMAND"
         self.cmd_x = 1
         self.cmd_input = ':'
 
     def esc_cmdmode(self):
-        self.mode = "NORMAL"
+        self.mode = self.prev_mode
         self.cmd_x = 0
         self.cmd_input = ''
 
@@ -516,6 +531,14 @@ class Editor:
         else:
             self.echo("Unable to find pattern")
 
+    def find_char_next(self, ch: str):
+        if ch.isprintable():
+            self.search_next(ch)
+
+    def find_char_prev(self, ch: str):
+        if ch.isprintable():
+            self.search_prev(ch)
+
     # 不愧是Python，轻易就做到了我们无法做到的事
     # 终于知道为什么要在代码里写Fuck了（
     # 有一种依托答辩的美感（
@@ -703,6 +726,47 @@ class Editor:
         self.cmd_input = self.cmd_input[:self.cmd_x] + \
             self.cmd_input[self.cmd_x + 1:]
 
+    def goto_next_word(self):
+        # self.y, self.x = self.inc_pos(self.y, self.x)
+        cur = self.get_cur_char(self.y, self.x)
+        if cur is None:
+            return
+        if cur.isspace():
+            while cur and cur.isspace():
+                self.y, self.x = self.inc_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+        elif cur.isidentifier() or cur.isdigit():
+            while cur and (cur.isidentifier() or cur.isdigit()):
+                self.y, self.x = self.inc_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+        else:
+            while cur and not (cur.isspace() or cur.isidentifier() or cur.isdigit()):
+                self.y, self.x = self.inc_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+
+    def goto_prev_word(self):
+        self.y, self.x = self.dec_pos(self.y, self.x)
+        cur = self.get_cur_char(self.y, self.x)
+        if cur.isspace():
+            while cur and cur.isspace():
+                if self.y == [0, 0] and self.x == 0:
+                    return
+                self.y, self.x = self.dec_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+        elif cur.isidentifier() or cur.isdigit():
+            while cur and (cur.isidentifier() or cur.isdigit()):
+                if self.y == [0, 0] and self.x == 0:
+                    return
+                self.y, self.x = self.dec_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+        else:
+            while cur and not (cur.isspace() or cur.isidentifier() or cur.isdigit()):
+                if self.y == [0, 0] and self.x == 0:
+                    return
+                self.y, self.x = self.dec_pos(self.y, self.x)
+                cur = self.get_cur_char(self.y, self.x)
+        self.y, self.x = self.inc_pos(self.y, self.x)
+
     def run_cmd(self, cmd: str):
         cmda = cmd[1:].split(' ', 1)
         while len(cmda) < 2:
@@ -733,7 +797,7 @@ class Editor:
         self.run_cmd(self.cmd_input)
         self.cmd_x = 0
         self.cmd_input = ''
-        self.mode = "NORMAL"
+        self.mode = self.prev_mode
 
     def draw_modeline_minibuffer(self):
         mb_h = 1
@@ -750,8 +814,27 @@ class Editor:
         for i in range(mb_h):
             for j in range(self.textspace_w):
                 self.screen.change(self.textspace_h + 1 + i, j, ' ', '')
-        modeline = self.mode + \
-            f"   ln: {self.y[0] + 1} + {self.y[1]}, col: {self.x + 1}"
+        # modeline = self.mode + \
+        #     f"   ln: {self.y[0] + 1} + {self.y[1]}, col: {self.x + 1}"
+        modeline = "%s  " % (self.mode)
+        total_w = self.textspace_w + self.linum_w
+        modelinum = "  ln: %d + %d, col: %d " % (*self.y, self.x)
+        spare_w = total_w - len(modeline + modelinum)
+        if self.file:
+            file = self.file
+        else:
+            file = ''
+        if self.undo_version != self.saved_version:
+            if len(file) > spare_w:
+                fname = file[:spare_w-5] + '..[+]'
+            else:
+                fname = file + "[+]" + ' ' * (spare_w - len(file) - 3)
+        else:
+            if len(file) > spare_w:
+                fname = file[:spare_w-2] + '..'
+            else:
+                fname = file + ' ' * (spare_w - len(file))
+        modeline = modeline + fname + modelinum
         shift = 0
         for ch in modeline:
             self.screen.change(self.textspace_h, shift + 1, ch, '\033[47;30m')

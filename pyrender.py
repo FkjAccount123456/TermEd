@@ -7,7 +7,7 @@ op = [
     '<<', '>>', '&', '|', '^', '~', '=',
 ]
 
-builtins = dir(__builtins__).copy()
+# builtins = dir(__builtins__).copy()
 
 
 def pyrenderer(code: str, width: int, cs: dict):
@@ -45,9 +45,9 @@ def pyrenderer(code: str, width: int, cs: dict):
             if s in kwlist:
                 for i in range(len(s)):
                     add_ret(cs["keyword"])
-            elif s in builtins or s in ('self', 'cls'):
-                for i in range(len(s)):
-                    add_ret(cs["builtin"])
+            # elif s in builtins or s in ('self', 'cls'):
+            #     for i in range(len(s)):
+            #         add_ret(cs["builtin"])
             else:
                 for i in range(len(s)):
                     add_ret(cs["identifier"])
