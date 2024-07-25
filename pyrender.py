@@ -2,9 +2,24 @@ from utils import get_width
 from keyword import kwlist
 
 op = [
-    '+', '-', '*', '/', '%',
-    '==', '!=', '>', '<', '>=', '<=',
-    '<<', '>>', '&', '|', '^', '~', '=',
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "==",
+    "!=",
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "<<",
+    ">>",
+    "&",
+    "|",
+    "^",
+    "~",
+    "=",
 ]
 
 # builtins = dir(__builtins__).copy()
@@ -20,7 +35,7 @@ def pyrenderer(code: str, width: int, cs: dict):
             return
         ch = code[p]
         p += 1
-        if ch == '\n':
+        if ch == "\n":
             ret.append([[]])
             ret_cur_w = 0
         else:
@@ -32,14 +47,14 @@ def pyrenderer(code: str, width: int, cs: dict):
             ret[-1][-1].append(color + ch)
 
     p = 0
-    while p< len(code):
+    while p < len(code):
         if code[p].isdigit():
-            while p < len(code) and (code[p].isdigit() or code[p] in '.xbo'):
+            while p < len(code) and (code[p].isdigit() or code[p] in ".xbo"):
                 add_ret(cs["number"])
-        elif code[p].isalpha() or code[p] == '_':
+        elif code[p].isalpha() or code[p] == "_":
             s = ""
             t = p
-            while t < len(code) and (code[t].isalnum() or code[t] == '_'):
+            while t < len(code) and (code[t].isalnum() or code[t] == "_"):
                 s += code[t]
                 t += 1
             if s in kwlist:
@@ -51,33 +66,33 @@ def pyrenderer(code: str, width: int, cs: dict):
             else:
                 for i in range(len(s)):
                     add_ret(cs["identifier"])
-        elif code[p: p+3] in ('"""', "'''"):
-            s = code[p: p+3]
-            x = code[p: p+3]
+        elif code[p : p + 3] in ('"""', "'''"):
+            s = code[p : p + 3]
+            x = code[p : p + 3]
             t = p + 3
-            while t < len(code) and code[t: t+3] != x:
-                if code[t] == '\\':
+            while t < len(code) and code[t : t + 3] != x:
+                if code[t] == "\\":
                     s += code[t]
                     t += 1
-                    if code[t] in '\'"':
+                    if code[t] in "'\"":
                         s += code[t]
                         t += 1
                 else:
                     s += code[t]
                     t += 1
-            s += code[t: t + 3]
+            s += code[t : t + 3]
             t += 3
             for i in range(len(s)):
                 add_ret(cs["string"])
-        elif code[p] in '\'"':
+        elif code[p] in "'\"":
             s = code[p]
             x = code[p]
             t = p + 1
-            while t < len(code) and code[t] != '\n' and code[t] != x:
-                if code[t] == '\\':
+            while t < len(code) and code[t] != "\n" and code[t] != x:
+                if code[t] == "\\":
                     s += code[t]
                     t += 1
-                    if code[t] in '\'"\n':
+                    if code[t] in "'\"\n":
                         s += code[t]
                         t += 1
                 else:
@@ -88,10 +103,10 @@ def pyrenderer(code: str, width: int, cs: dict):
                 t += 1
             for i in range(len(s)):
                 add_ret(cs["string"])
-        elif code[p] == '#':
-            while p < len(code) and code[p] != '\n':
+        elif code[p] == "#":
+            while p < len(code) and code[p] != "\n":
                 add_ret(cs["comment"])
-        elif code[p: p+2] in op:
+        elif code[p : p + 2] in op:
             add_ret(cs["operator"])
             add_ret(cs["operator"])
         elif code[p] in op:

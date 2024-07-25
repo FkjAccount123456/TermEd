@@ -1,5 +1,5 @@
 colorschemes = {
-    'default': {
+    "default": {
         "keyword": "\033[1;35m",
         "operator": "\033[1;36m",
         "identifier": "",
@@ -8,5 +8,6 @@ colorschemes = {
         "comment": "\033[1;38;5;242m",
         "others": "",
         "builtin": "\033[1;34m",
+        "error": "\033[1;41;30m",
     },
 }

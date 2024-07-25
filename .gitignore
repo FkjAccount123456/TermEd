@@ -1,6 +1,8 @@
 __pycache__/
 .mypy_cache/
 .root/
+node_modules/
+*.json
 *~
 *.swp
 tags
